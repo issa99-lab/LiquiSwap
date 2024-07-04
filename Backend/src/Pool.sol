@@ -17,7 +17,7 @@ contract LiquiPool is ERC20 {
         string memory _name,
         string memory _symbol
     ) ERC20(_name, _symbol) {
-        i_wethToken = _weth;
-        i_token = _token;
+        i_wethToken = IERC20(_weth);
+        i_token = IERC20(_token);
     }
 }

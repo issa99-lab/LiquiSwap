@@ -1,7 +1,7 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import {LiquiPool} from "src/LiquiPool.sol";
+import {LiquiPool} from "./Pool.sol";
 import {IERC20} from "lib/forge-std/src/interfaces/IERC20.sol";
 
 contract PoolFactory {
@@ -38,17 +38,20 @@ contract PoolFactory {
             revert ERR_PoolExists(token);
         }
 
-        string memory tokenName = string.concat("Liqui", IERC20(token).name());
-        string memory tokenSymbol = string.concat(
+        string memory LiquiTokenName = string.concat(
+            "Liqui",
+            IERC20(token).name()
+        );
+        string memory LiquiTokenSymbol = string.concat(
             "Liqui",
             IERC20(token).symbol()
         );
 
-        LiquiPool pool = new Liquipool(
+        LiquiPool pool = new LiquiPool(
             i_wethToken,
             token,
-            tokenName,
-            tokenSymbol
+            LiquiTokenName,
+            LiquiTokenSymbol
         );
         s_pools[token] = address(pool);
         s_tokens[address(pool)] = token;
