@@ -14,10 +14,11 @@ contract PoolFactory {
     mapping(address pool => address token) private s_tokens;
 
     address private immutable i_wethToken;
-    address private poolOwner;
+    address public poolOwner;
 
     //-----EVENTS-----//
-    event PoolCreated(address tokenAddress, address pool);
+    event PoolCreated(address indexed tokenAddress, address indexed pool);
+    event OwnerSet(address indexed newOwner);
 
     constructor(address _weth) {
         i_wethToken = _weth;
@@ -64,6 +65,7 @@ contract PoolFactory {
         address newOwner
     ) external onlyOwner returns (address) {
         poolOwner = newOwner;
+        emit OwnerSet(newOwner);
         return newOwner;
     }
 
