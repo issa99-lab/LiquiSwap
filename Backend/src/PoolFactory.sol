@@ -39,6 +39,7 @@ contract PoolFactory {
             revert ERR_PoolExists(token);
         }
 
+        //LP tokens for investor eg.liquiUSDT
         string memory LiquiTokenName = string.concat(
             "Liqui",
             IERC20(token).name()
