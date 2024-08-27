@@ -71,7 +71,7 @@ contract LiquiPool is ERC20 {
                 liquidityTokensToMint
             );
         }
-        //first time deposit
+        //first time deposit, no liquidity
         else {
             addAndMintLiquidityTokens(
                 _wethAmountToDeposit,
