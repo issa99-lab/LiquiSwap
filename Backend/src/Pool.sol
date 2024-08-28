@@ -5,19 +5,33 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract LiquiPool is ERC20 {
-    error AmoutIsZero(uint256 _amount);
+    ////ERRORS////
+    error AmountIsZero(uint256 _amount);
+    error DeadlinePassed(uint256 _deadline);
     error MinimumDepositRequired(uint256 _wethAmountToDeposit);
     error PoolTokenToDepositTooHigh(uint256 _poolTokenToDeposit);
-    error LiquidityToMintTooHigh(uint256 liquidityTokensToMint);
+    error LiquidityToMintTooHigh(uint256 _liquidityTokensToMint);
+    error OutputAmountTooLow(uint256 _outputAmount);
+    error MaxDepositReached(uint256 _inputAmount);
+    error InvalidTokens();
 
     using SafeERC20 for IERC20;
 
     event LiquidityTokensMinted(address lp, uint256 _poolTokensToMint);
+    event SwapComplete(
+        address indexed swapper,
+        uint256 indexed _tokenAmount,
+        uint256 indexed _outputAmount
+    );
+
     //State variables
     IERC20 private immutable i_wethToken;
     IERC20 private immutable i_token;
 
     uint256 private constant MINIMUM_WETH_TO_DEPOSIT = 1000000;
+
+    uint256 private constant PRECISION = 1000;
+    uint256 private constant MINUS_FEE = 997;
 
     constructor(
         address _weth,
@@ -32,6 +46,13 @@ contract LiquiPool is ERC20 {
     modifier revertIfZero(uint256 amount) {
         if (amount <= 0) {
             revert AmoutIsZero(amount);
+        }
+        _;
+    }
+
+    modifier revertIfDeadlineHasPassed(uint64 _deadline) {
+        if (_deadline > uint64(block.timestamp)) {
+            revert DeadlinePassed(_deadline);
         }
         _;
     }
@@ -111,21 +132,119 @@ contract LiquiPool is ERC20 {
     function withdraw() external {}
 
     //user comes in and swaps either token for weth, or weth for token
-    function swapExactInputAmount() external {}
+    function swapExactInput(
+        IERC20 _token,
+        uint256 _maximumTokensToDeposit,
+        IERC20 _weth,
+        uint256 _minimumWethToReceive,
+        uint64 _deadline
+    )
+        external
+        revertIfZero(_maximumTokensToDeposit)
+        revertIfDeadlineHasPassed(_deadline)
+    {
+        uint256 tokenReserves = _token.balanceOf(address(this));
+        uint256 wethReserves = _weth.balanceOf(address(this));
+        uint256 outputAmount = getOutputBasedOnInputAmount(
+            _maximumTokensToDeposit,
+            tokenReserves,
+            wethReserves
+        );
 
-    function swapExactOutputAmount() external {}
+        if (outputAmount < _minimumWethToReceive) {
+            revert OutputAmountTooLow(outputAmount);
+        }
+        swap(_token, _maximumTokensToDeposit, _weth, outputAmount);
+    }
 
-    function swap() external {}
+    /*@notice  I want to get 10 weth, how much tokens should I deposit?*/
+    function swapExactOutput(
+        IERC20 _weth,
+        uint256 _minWethToReceive,
+        IERC20 _token,
+        uint256 _maxTokensToDeposit,
+        uint64 _deadline
+    )
+        external
+        revertIfZero(_maxTokensToDeposit)
+        revertIfDeadlineHasPassed(_deadline)
+    {
+        uint256 wethReserves = _weth.balanceOf(address(this));
+        uint256 tokenReserves = _token.balanceOf(address(this));
+        uint256 inputAmount = getInputBasedOnOutput(
+            _minWethToReceive,
+            wethReserves,
+            tokenReserves
+        );
 
-    //done before swapping..eg. user has 50 usdc and wants to know how much he'll get in weth. will calculate the amount of weth they'll receive based on their input. (-= > usdc - transaction cost)
-    function getOutputBasedOnInputAmount() external {}
+        if (_maxTokensToDeposit < inputAmount) {
+            revert MaxDepositReached(inputAmount);
+        }
+        emit SwapComplete(msg.sender, inputAmount, _minWethToReceive);
+        swap(_token, inputAmount, _weth, _minWethToReceive);
+    }
+
+    /*@notice Swap input token (usdc) for output token, weth*/
+    function swap(
+        IERC20 _inputToken,
+        uint256 _tokenAmount,
+        IERC20 _outputToken,
+        uint256 _outputAmount
+    ) public revertIfZero(_tokenAmount) {
+        if (
+            _isUnknown(_inputToken) ||
+            _isUnknown(_outputToken) ||
+            _inputToken == _outputToken
+        ) {
+            revert InvalidTokens();
+        }
+        emit SwapComplete(msg.sender, _tokenAmount, _outputAmount);
+        _inputToken.safeTransferFrom(msg.sender, address(this), _tokenAmount);
+        _outputToken.safeTransfer(msg.sender, _outputAmount);
+    }
+
+    /*@notice done before swapping..eg. user has 50 usdc and wants to know how much he'll get in weth. will calculate the amount of weth they'll receive based on their input, minus fees 0.03%*/
+    function getOutputBasedOnInputAmount(
+        uint256 _inputAmount,
+        uint256 _inputReserves,
+        uint256 _outputReserves
+    ) public pure returns (uint256 outputAmount) {
+        uint256 inputAmountMinusFee = _inputAmount * MINUS_FEE;
+        uint256 numerator = inputAmountMinusFee * _outputReserves;
+        uint256 denominator = (_inputReserves * PRECISION) +
+            inputAmountMinusFee;
+
+        return numerator / denominator;
+    }
 
     //done before swapping..eg. user has usdc and wants 1 weth. will calculate the amount of usdc they should send inorder to receive 1 weth. -= > usdc + transaction cost
-    function getInputBasedOnOutputAmount() external {}
+    function getInputBasedOnOutput(
+        uint256 _wethAmount,
+        uint256 _wethReserves,
+        uint256 _tokenReserves
+    )
+        public
+        pure
+        revertIfZero(_wethAmount)
+        revertIfZero(_wethReserves)
+        returns (
+            uint256 //input
+        )
+    {
+        return
+            (((_wethAmount * _tokenReserves) * PRECISION) /
+                (_wethReserves - _wethAmount)) * MINUS_FEE;
+    }
 
     function sellPoolToken() external {}
 
-    function _isUnknown(address _token) internal view returns (bool) {}
+    function _isUnknown(IERC20 _token) internal view returns (bool) {
+        if (_token != i_token && _token != i_wethToken) {
+            return true;
+        } else {
+            return false;
+        }
+    }
 
     function totalLiquidityTokenSupply() public view returns (uint256) {
         return totalSupply();
